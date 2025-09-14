@@ -1,8 +1,16 @@
 <script setup>
 import { computed } from "vue";
-import { avgRating } from "../data/programs";
+import { useReviews } from "../stores/reviews";
 const props = defineProps({ program: Object });
-const rating = computed(() => avgRating(props.program).toFixed(1));
+const reviewsStore = useReviews();
+const rating = computed(() => {
+  const base = props.program.reviews || [];
+  const extra = reviewsStore.forProgram(props.program.id) || [];
+  const all = [...base, ...extra];
+  if (!all.length) return "0.0";
+  const avg = all.reduce((a, r) => a + (Number(r.rating) || 0), 0) / all.length;
+  return avg.toFixed(1);
+});
 </script>
 
 <template>
