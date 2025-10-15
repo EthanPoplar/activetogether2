@@ -7,7 +7,10 @@ const canDashboard = computed(() => ["coach","admin"].includes(auth.role));
 
 <template>
   <div class="min-h-screen">
-    <header class="sticky top-0 z-40 border-b bg-white/90 backdrop-blur">
+    <a href="#main-content" class="skip-link">
+      Skip to main content
+    </a>
+    <header class="sticky top-0 z-40 border-b bg-white/90 backdrop-blur" role="banner">
       <nav class="mx-auto max-w-7xl px-4 flex h-14 items-center justify-between">
         <RouterLink to="/" class="flex items-center gap-2 font-semibold">
           <span class="grid h-8 w-8 place-items-center rounded-xl bg-gradient-to-tr from-blue-600 to-cyan-500 text-white">NFP</span>
@@ -30,6 +33,8 @@ const canDashboard = computed(() => ["coach","admin"].includes(auth.role));
       </nav>
     </header>
 
-    <RouterView />
+    <main id="main-content">
+      <RouterView />
+    </main>
   </div>
 </template>

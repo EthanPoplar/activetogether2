@@ -1,8 +1,10 @@
 <script setup>
 import { computed } from "vue";
 import { useReviews } from "../stores/reviews";
+
 const props = defineProps({ program: Object });
 const reviewsStore = useReviews();
+
 const rating = computed(() => {
   const base = props.program.reviews || [];
   const extra = reviewsStore.forProgram(props.program.id) || [];
@@ -15,7 +17,7 @@ const rating = computed(() => {
 
 <template>
   <article class="card transition hover:shadow-md">
-    <div class="h-32 w-full bg-gradient-to-tr from-blue-200 to-cyan-200"></div>
+    <div class="h-32 w-full bg-gradient-to-tr from-blue-200 to-cyan-200" role="presentation"></div>
     <div class="space-y-2 p-4">
       <h3 class="line-clamp-1 text-base font-semibold">{{ program.name }}</h3>
       <p class="text-sm text-slate-600">
@@ -27,7 +29,9 @@ const rating = computed(() => {
         <span v-if="program.accessible" class="pill">Accessible</span>
       </div>
 
-      <div class="mt-1 text-sm">⭐ <span class="font-medium">{{ rating }}</span> average</div>
+      <div class="mt-1 text-sm" aria-label="Average rating">
+        ⭐ <span class="font-medium">{{ rating }}</span> average
+      </div>
 
       <div class="mt-3 flex items-center gap-2">
         <RouterLink :to="`/programs/${program.id}`" class="btn-ghost">View details</RouterLink>

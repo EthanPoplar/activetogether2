@@ -1,54 +1,175 @@
 <script setup>
-import { ref, computed } from "vue";
-import { programs } from "../data/programs";
+import { computed, onMounted, ref, watch } from "vue";
 import ProgramCard from "../components/ProgramCard.vue";
+import VenueMap from "../components/VenueMap.vue";
+import { usePrograms } from "../stores/programs";
 
+const programsStore = usePrograms();
 const q = ref("");
 const onlyFree = ref(false);
 const accessible = ref(false);
+const selectedProgramId = ref("");
+const userLocation = ref(null);
+const locating = ref(false);
 
 const results = computed(() =>
-  programs.filter(p =>
+  programsStore.items.filter(p =>
     (!onlyFree.value || p.cost === 0) &&
     (!accessible.value || p.accessible) &&
     (p.name.toLowerCase().includes(q.value.toLowerCase()) ||
      p.venue.toLowerCase().includes(q.value.toLowerCase()))
   )
 );
+
+const markers = computed(() => results.value.map(program => ({
+  id: program.id,
+  label: program.name,
+  lat: program.location?.lat,
+  lng: program.location?.lng,
+  address: program.location?.address,
+})).filter(marker => marker.lat && marker.lng));
+
+const mapCenter = computed(() => {
+  const selected = programsStore.items.find(p => p.id === selectedProgramId.value);
+  return selected?.location || markers.value[0] || { lat: -37.7999, lng: 144.93 };
+});
+
+const nearbyPrograms = computed(() => {
+  if (!userLocation.value) return [];
+  return programsStore.items
+    .map(program => ({
+      program,
+      distance: haversine(userLocation.value, program.location),
+    }))
+    .filter(entry => Number.isFinite(entry.distance))
+    .sort((a, b) => a.distance - b.distance)
+    .slice(0, 5);
+});
+
+const route = computed(() => {
+  if (!userLocation.value) return null;
+  const selected = programsStore.items.find(p => p.id === selectedProgramId.value);
+  if (!selected?.location) return null;
+  return { from: userLocation.value, to: selected.location };
+});
+
+function haversine(from, to) {
+  if (!from?.lat || !from?.lng || !to?.lat || !to?.lng) return Infinity;
+  const R = 6371;
+  const dLat = ((to.lat - from.lat) * Math.PI) / 180;
+  const dLng = ((to.lng - from.lng) * Math.PI) / 180;
+  const a =
+    Math.sin(dLat / 2) ** 2 +
+    Math.cos((from.lat * Math.PI) / 180) *
+      Math.cos((to.lat * Math.PI) / 180) *
+      Math.sin(dLng / 2) ** 2;
+  const c = 2 * Math.atan2(Math.sqrt(a), Math.sqrt(1 - a));
+  return +(R * c).toFixed(1);
+}
+
+function selectProgram(id) {
+  selectedProgramId.value = id;
+}
+
+function resetFilters() {
+  q.value = "";
+  onlyFree.value = false;
+  accessible.value = false;
+}
+
+function locateMe() {
+  if (!navigator.geolocation) return;
+  locating.value = true;
+  navigator.geolocation.getCurrentPosition((position) => {
+    userLocation.value = {
+      lat: position.coords.latitude,
+      lng: position.coords.longitude,
+    };
+    locating.value = false;
+  }, () => {
+    locating.value = false;
+  }, { enableHighAccuracy: true });
+}
+
+onMounted(() => {
+  programsStore.init();
+});
+
+watch(results, (list) => {
+  if (list.length && !selectedProgramId.value) {
+    selectedProgramId.value = list[0].id;
+  }
+});
 </script>
 
 <template>
-  <section class="container-std py-8">
+  <section class="container-std py-8 space-y-6">
     <header class="mb-6">
       <h1 class="text-2xl font-bold">Programs</h1>
-      <p class="mt-1 text-slate-600">Use the filters to quickly find a good fit.</p>
+      <p class="mt-1 text-slate-600">Use filters, the interactive map, or the “near me” tool to find activities quickly.</p>
     </header>
 
     <div class="grid gap-6 lg:grid-cols-12">
-      <aside class="card p-4 lg:col-span-3">
-        <h2 class="mb-3 text-sm font-semibold text-slate-900">Filters</h2>
-        <label class="block">
-          <span class="mb-1 block text-xs font-medium text-slate-500">Search</span>
-          <input v-model="q" class="input" placeholder="Sport, venue or suburb" />
-        </label>
-        <div class="mt-3 space-y-2 text-sm">
-          <label class="flex items-center gap-2"><input type="checkbox" v-model="onlyFree" /> Free only</label>
-          <label class="flex items-center gap-2"><input type="checkbox" v-model="accessible" /> Wheelchair accessible</label>
+      <aside class="card p-4 lg:col-span-3 space-y-4" aria-label="Filters">
+        <div>
+          <h2 class="mb-3 text-sm font-semibold text-slate-900">Filters</h2>
+          <label class="block">
+            <span class="mb-1 block text-xs font-medium text-slate-500">Search</span>
+            <input v-model="q" class="input" placeholder="Sport, venue or suburb" type="search" />
+          </label>
+          <div class="mt-3 space-y-2 text-sm">
+            <label class="flex items-center gap-2"><input type="checkbox" v-model="onlyFree" /> Free only</label>
+            <label class="flex items-center gap-2"><input type="checkbox" v-model="accessible" /> Wheelchair accessible</label>
+          </div>
+          <div class="mt-4 flex gap-2">
+            <button class="btn-ghost" type="button" @click="resetFilters">Reset</button>
+          </div>
         </div>
-        <div class="mt-4 flex gap-2">
-          <button class="btn-primary" @click="()=>{}">Apply</button>
-          <button class="btn-ghost" @click="q='';onlyFree=false;accessible=false">Reset</button>
+        <div class="border-t border-slate-200 pt-4">
+          <h3 class="text-sm font-semibold text-slate-900">Find near me</h3>
+          <p class="mt-1 text-xs text-slate-500">We’ll use your current location to highlight close-by programs.</p>
+          <button class="btn-primary mt-3 w-full" type="button" :disabled="locating" @click="locateMe">
+            <span v-if="!locating">Locate me</span>
+            <span v-else>Locating…</span>
+          </button>
+          <ul v-if="nearbyPrograms.length" class="mt-3 space-y-2 text-sm" aria-live="polite">
+            <li v-for="{ program, distance } in nearbyPrograms" :key="program.id">
+              <button class="underline" type="button" @click="selectProgram(program.id)">
+                {{ program.name }}
+              </button>
+              <span class="text-xs text-slate-500"> · {{ distance }} km away</span>
+            </li>
+          </ul>
+          <p v-else-if="userLocation" class="mt-3 text-xs text-slate-500">No nearby programs within 10 km yet.</p>
         </div>
       </aside>
 
-      <section class="lg:col-span-9">
-        <div v-if="results.length" class="grid gap-5 sm:grid-cols-2 xl:grid-cols-3">
-          <ProgramCard v-for="p in results" :key="p.id" :program="p" />
+      <section class="lg:col-span-9 space-y-6">
+        <div class="card p-4">
+          <h2 class="text-sm font-semibold text-slate-900">Interactive map</h2>
+          <p class="text-xs text-slate-500">Hover markers to preview venues. When “near me” is active we draw a route to the selected program.</p>
+          <VenueMap
+            class="mt-3"
+            :center="mapCenter"
+            :markers="markers"
+            :highlight-id="selectedProgramId"
+            :route="route"
+          />
         </div>
-        <div v-else class="card p-8 text-center">
+
+        <div v-if="results.length" class="grid gap-5 sm:grid-cols-2 xl:grid-cols-3" aria-live="polite">
+          <ProgramCard
+            v-for="p in results"
+            :key="p.id"
+            :program="p"
+            @mouseenter="selectProgram(p.id)"
+            @focusin="selectProgram(p.id)"
+          />
+        </div>
+        <div v-else class="card p-8 text-center" role="status">
           <p class="text-lg font-semibold">No matches yet</p>
           <p class="mt-1 text-slate-600">Try clearing filters or searching a different suburb.</p>
-          <button class="btn-ghost mt-4" @click="q='';onlyFree=false;accessible=false">Clear filters</button>
+          <button class="btn-ghost mt-4" type="button" @click="resetFilters">Clear filters</button>
         </div>
       </section>
     </div>

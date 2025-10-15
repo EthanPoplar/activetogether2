@@ -14,8 +14,9 @@ const schema = z.object({
 const form = ref({ email: "", password: "" });
 const errors = ref({});
 const errorMsg = ref("");
+const submitting = ref(false);
 
-async function submit(){
+async function submit() {
   errors.value = {}; errorMsg.value = "";
   const res = schema.safeParse({ email: form.value.email.trim(), password: form.value.password });
   if (!res.success) {
@@ -23,11 +24,14 @@ async function submit(){
     return;
   }
   try {
+    submitting.value = true;
     await auth.login(res.data);
     const redirect = route.query.redirect || "/";
     router.push(String(redirect));
   } catch (e) {
     errorMsg.value = "Invalid email or password";
+  } finally {
+    submitting.value = false;
   }
 }
 </script>
@@ -45,7 +49,10 @@ async function submit(){
         <input type="password" v-model="form.password" class="input mt-1" placeholder="******" autocomplete="current-password" />
         <span v-if="errors.password" class="mt-1 block text-xs text-red-600">{{ errors.password }}</span>
       </label>
-      <button class="btn-primary mt-5 w-full" @click="submit">Login</button>
+      <button class="btn-primary mt-5 w-full disabled:opacity-60" :disabled="submitting" @click="submit">
+        <span v-if="!submitting">Login</span>
+        <span v-else>Signing in…</span>
+      </button>
       <p v-if="errorMsg" class="mt-3 text-sm text-red-700">{{ errorMsg }}</p>
       <RouterLink to="/register" class="mt-3 block text-center text-sm text-slate-600 underline">Need an account?</RouterLink>
     </div>

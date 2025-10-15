@@ -14,16 +14,18 @@ const schema = z.object({
   password: passwordSchema,
   confirm: z.string(),
   role: z.enum(["participant","coach"]),
+  fullName: z.string().min(2, "Add your name"),
 }).superRefine((val, ctx) => {
   if (val.password !== val.confirm) {
     ctx.addIssue({ code: z.ZodIssueCode.custom, path: ["confirm"], message: "Passwords do not match" });
   }
 });
 
-const form = ref({ email:"", password:"", confirm:"", role:"participant" });
+const form = ref({ email:"", password:"", confirm:"", role:"participant", fullName:"" });
 const errors = ref({});
 const auth = useAuth();
 const success = ref("");
+const submitting = ref(false);
 
 async function submit() {
   success.value = "";
@@ -32,6 +34,7 @@ async function submit() {
     password: form.value.password,
     confirm: form.value.confirm,
     role: form.value.role,
+    fullName: form.value.fullName.trim(),
   });
   errors.value = {};
   if (!res.success) {
@@ -39,10 +42,18 @@ async function submit() {
     return;
   }
   try {
-    await auth.register({ email: res.data.email, password: res.data.password, role: res.data.role });
+    submitting.value = true;
+    await auth.register({
+      email: res.data.email,
+      password: res.data.password,
+      role: res.data.role,
+      displayName: res.data.fullName,
+    });
     success.value = "Account created. You are now logged in.";
   } catch (e) {
     errors.value.email = e.message || "Registration failed";
+  } finally {
+    submitting.value = false;
   }
 }
 </script>
@@ -54,6 +65,10 @@ async function submit() {
       <label class="mt-4 block text-sm">Email
         <input v-model.trim="form.email" class="input mt-1" placeholder="you@example.com" autocomplete="email" />
         <span v-if="errors.email" class="mt-1 block text-xs text-red-600">{{ errors.email }}</span>
+      </label>
+      <label class="mt-3 block text-sm">Full name
+        <input v-model.trim="form.fullName" class="input mt-1" placeholder="Your name" autocomplete="name" />
+        <span v-if="errors.fullName" class="mt-1 block text-xs text-red-600">{{ errors.fullName }}</span>
       </label>
       <label class="mt-3 block text-sm">Password
         <input type="password" v-model="form.password" class="input mt-1" placeholder="******" autocomplete="new-password" />
@@ -69,7 +84,10 @@ async function submit() {
           <option value="coach">Coach</option>
         </select>
       </label>
-      <button class="btn-primary mt-5 w-full" @click="submit">Sign up</button>
+      <button class="btn-primary mt-5 w-full disabled:opacity-60" :disabled="submitting" @click="submit">
+        <span v-if="!submitting">Sign up</span>
+        <span v-else>Creating account…</span>
+      </button>
       <p v-if="success" class="mt-3 text-sm text-green-700">{{ success }}</p>
     </div>
   </section>

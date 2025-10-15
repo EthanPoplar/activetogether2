@@ -1,60 +1,99 @@
 import { defineStore } from "pinia";
+import {
+  createUserWithEmailAndPassword,
+  onAuthStateChanged,
+  signInWithEmailAndPassword,
+  signOut,
+  updateProfile,
+} from "firebase/auth";
+import { doc, getDoc, setDoc } from "firebase/firestore";
+import { auth, db } from "../lib/firebase";
 
-const USERS_KEY = "auth:users";
-const USER_KEY = "auth:user";
-const ROLE_KEY = "role"; // kept for router guard backward compatibility
+const ROLE_KEY = "role";
 
-async function sha256Hex(input) {
-  const data = new TextEncoder().encode(input);
-  const hash = await crypto.subtle.digest("SHA-256", data);
-  return Array.from(new Uint8Array(hash)).map(b => b.toString(16).padStart(2, "0")).join("");
-}
-
-function randomSalt(len = 16) {
-  const bytes = new Uint8Array(len);
-  crypto.getRandomValues(bytes);
-  return Array.from(bytes).map(b => b.toString(16).padStart(2, "0")).join("");
+async function loadUserRole(uid) {
+  if (!uid) return "guest";
+  const snap = await getDoc(doc(db, "userProfiles", uid));
+  return snap.exists() ? snap.data().role || "participant" : "participant";
 }
 
 export const useAuth = defineStore("auth", {
   state: () => ({
-    isAuthed: !!localStorage.getItem(USER_KEY),
-    role: localStorage.getItem(ROLE_KEY) || "guest", // "participant" | "coach" | "admin"
-    user: JSON.parse(localStorage.getItem(USER_KEY) || "null"),
-    users: JSON.parse(localStorage.getItem(USERS_KEY) || "[]"), // [{ email, role, salt, hash }]
+    isAuthed: !!auth.currentUser,
+    role: localStorage.getItem(ROLE_KEY) || "guest",
+    user: auth.currentUser ? { uid: auth.currentUser.uid, email: auth.currentUser.email } : null,
+    loading: true,
     error: null,
+    ready: false,
   }),
   actions: {
-    persistUsers() { localStorage.setItem(USERS_KEY, JSON.stringify(this.users)); },
-    async register({ email, password, role }) {
-      email = String(email || "").toLowerCase().trim();
-      if (this.users.find(u => u.email === email)) {
-        throw new Error("Email already registered");
+    async init() {
+      if (this.ready) return;
+      if (this.initPromise) return this.initPromise;
+      this.initPromise = new Promise((resolve) => {
+        this.unsubscribe = onAuthStateChanged(auth, async (firebaseUser) => {
+          if (!firebaseUser) {
+            this.isAuthed = false;
+            this.user = null;
+            this.role = "guest";
+            localStorage.setItem(ROLE_KEY, "guest");
+            this.loading = false;
+            this.ready = true;
+            resolve();
+            return;
+          }
+          this.isAuthed = true;
+          this.user = { uid: firebaseUser.uid, email: firebaseUser.email, displayName: firebaseUser.displayName };
+          this.role = await loadUserRole(firebaseUser.uid);
+          localStorage.setItem(ROLE_KEY, this.role);
+          this.loading = false;
+          this.ready = true;
+          resolve();
+        });
+      });
+      return this.initPromise;
+    },
+    async register({ email, password, role, displayName }) {
+      this.error = null;
+      const cred = await createUserWithEmailAndPassword(auth, email, password);
+      if (displayName) {
+        await updateProfile(cred.user, { displayName });
       }
-      const salt = randomSalt();
-      const hash = await sha256Hex(salt + ":" + password);
-      const userRec = { email, role, salt, hash };
-      this.users.push(userRec);
-      this.persistUsers();
-      // auto-login after register
-      this.isAuthed = true; this.role = role; this.user = { email, role };
-      localStorage.setItem(USER_KEY, JSON.stringify(this.user));
-      localStorage.setItem(ROLE_KEY, role);
+      await setDoc(doc(db, "userProfiles", cred.user.uid), {
+        email: cred.user.email,
+        role: role || "participant",
+        createdAt: new Date().toISOString(),
+      });
+      this.role = role || "participant";
+      this.user = { uid: cred.user.uid, email: cred.user.email, displayName: cred.user.displayName };
+      this.isAuthed = true;
+      localStorage.setItem(ROLE_KEY, this.role);
+      this.ready = true;
+      this.loading = false;
     },
     async login({ email, password }) {
       this.error = null;
-      email = String(email || "").toLowerCase().trim();
-      const userRec = this.users.find(u => u.email === email);
-      if (!userRec) { this.error = "Invalid credentials"; throw new Error("Invalid credentials"); }
-      const hash = await sha256Hex(userRec.salt + ":" + password);
-      if (hash !== userRec.hash) { this.error = "Invalid credentials"; throw new Error("Invalid credentials"); }
-      this.isAuthed = true; this.role = userRec.role; this.user = { email, role: userRec.role };
-      localStorage.setItem(USER_KEY, JSON.stringify(this.user));
-      localStorage.setItem(ROLE_KEY, userRec.role);
+      try {
+        const cred = await signInWithEmailAndPassword(auth, email, password);
+        this.role = await loadUserRole(cred.user.uid);
+        this.user = { uid: cred.user.uid, email: cred.user.email, displayName: cred.user.displayName };
+        this.isAuthed = true;
+        localStorage.setItem(ROLE_KEY, this.role);
+        this.ready = true;
+        this.loading = false;
+      } catch (err) {
+        this.error = err.message;
+        throw err;
+      }
     },
-    logout() {
-      this.isAuthed = false; this.role = "guest"; this.user = null;
-      localStorage.removeItem(USER_KEY); localStorage.setItem(ROLE_KEY, "guest");
+    async logout() {
+      await signOut(auth);
+      this.isAuthed = false;
+      this.role = "guest";
+      this.user = null;
+      localStorage.setItem(ROLE_KEY, "guest");
+      this.ready = true;
+      this.loading = false;
     },
   },
 });

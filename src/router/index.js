@@ -1,4 +1,5 @@
 import { createRouter, createWebHistory } from "vue-router";
+import { useAuth } from "../stores/auth";
 
 // Views
 import Home from "../views/Home.vue";
@@ -26,12 +27,12 @@ const router = createRouter({
 });
 
 // Global auth/role guard
-router.beforeEach((to) => {
+router.beforeEach(async (to) => {
   if (!to.meta?.requiresAuth) return true;
-  const role = localStorage.getItem("role") || "guest";
-  const isAuthed = !!localStorage.getItem("user");
-  if (!isAuthed) return { path: "/login", query: { redirect: to.fullPath } };
-  const allowed = Array.isArray(to.meta.roles) ? to.meta.roles.includes(role) : true;
+  const auth = useAuth();
+  await auth.init();
+  if (!auth.isAuthed) return { path: "/login", query: { redirect: to.fullPath } };
+  const allowed = Array.isArray(to.meta.roles) ? to.meta.roles.includes(auth.role) : true;
   if (!allowed) return { path: "/" };
   return true;
 });
