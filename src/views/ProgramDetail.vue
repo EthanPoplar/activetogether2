@@ -1,5 +1,5 @@
 <script setup>
-import { computed, onMounted, ref } from "vue";
+import { computed, onMounted, onUnmounted, ref } from "vue";
 import { useRoute } from "vue-router";
 import { z } from "zod";
 import VenueMap from "../components/VenueMap.vue";
@@ -15,12 +15,10 @@ const reviewsStore = useReviews();
 const programsStore = usePrograms();
 const enrollmentsStore = useEnrollments();
 
-const userReviews = computed(() => reviewsStore.forProgram(id));
+const reviews = computed(() => reviewsStore.forProgram(id));
 const program = computed(() => programsStore.items.find(p => p.id === id) || fallbackPrograms.find(p => p.id === id));
-const baseReviews = computed(() => program.value?.reviews || []);
-const allReviews = computed(() => [...baseReviews.value, ...userReviews.value]);
-const average = computed(() => allReviews.value.length
-  ? (allReviews.value.reduce((a, r) => a + (Number(r.rating) || 0), 0) / allReviews.value.length)
+const average = computed(() => reviews.value.length
+  ? (reviews.value.reduce((a, r) => a + (Number(r.rating) || 0), 0) / reviews.value.length)
   : 0);
 
 // Review form
@@ -31,7 +29,7 @@ const reviewSchema = z.object({
   text: z.string().min(2, "Please add a short comment").max(500, "Keep it under 500 characters"),
 });
 
-function addReview() {
+async function addReview() {
   reviewErrors.value = {};
   const res = reviewSchema.safeParse(reviewForm.value);
   if (!res.success) {
@@ -39,8 +37,12 @@ function addReview() {
     return;
   }
   const user = auth.user?.email || "guest";
-  reviewsStore.add(id, { user, rating: res.data.rating, text: res.data.text });
-  reviewForm.value = { rating: 5, text: "" };
+  try {
+    await reviewsStore.add(id, { user, rating: res.data.rating, text: res.data.text });
+    reviewForm.value = { rating: 5, text: "" };
+  } catch (err) {
+    reviewErrors.value.text = err.message || "Unable to save review right now.";
+  }
 }
 
 // Quick registration
@@ -104,6 +106,11 @@ function locateMe() {
 onMounted(() => {
   programsStore.init();
   enrollmentsStore.init();
+  reviewsStore.watch(id);
+});
+
+onUnmounted(() => {
+  reviewsStore.stop(id);
 });
 </script>
 
@@ -122,7 +129,7 @@ onMounted(() => {
             </p>
             <p class="text-sm text-slate-600">Average rating:
               <span class="font-medium">{{ average.toFixed(1) }}</span>
-              ({{ allReviews.length }} reviews)
+              ({{ reviews.length }} reviews)
             </p>
             <div class="flex flex-wrap gap-2">
               <span v-for="t in program.tags" :key="t" class="pill">{{ t }}</span>
@@ -152,8 +159,8 @@ onMounted(() => {
 
           <section class="space-y-4">
             <h2 class="text-lg font-semibold">Reviews</h2>
-            <div v-if="allReviews.length" class="space-y-3">
-              <div v-for="(r, idx) in allReviews" :key="idx" class="rounded-xl border border-slate-200 bg-slate-50 p-3">
+            <div v-if="reviews.length" class="space-y-3">
+              <div v-for="r in reviews" :key="r.id || r.createdAt" class="rounded-xl border border-slate-200 bg-slate-50 p-3">
                 <div class="flex items-center justify-between text-xs text-slate-500">
                   <span>@{{ r.user }}</span>
                   <span aria-label="rating">{{ r.rating }} / 5</span>
@@ -223,3 +230,6 @@ onMounted(() => {
     <RouterLink to="/programs" class="btn-ghost mt-3">Back to programs</RouterLink>
   </section>
 </template>
+
+
+

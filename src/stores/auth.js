@@ -10,11 +10,42 @@ import { doc, getDoc, setDoc } from "firebase/firestore";
 import { auth, db } from "../lib/firebase";
 
 const ROLE_KEY = "role";
+const ADMIN_EMAILS = (import.meta.env.VITE_ADMIN_EMAILS || "")
+  .split(",")
+  .map((email) => email.trim().toLowerCase())
+  .filter(Boolean);
+const COACH_EMAILS = (import.meta.env.VITE_COACH_EMAILS || "")
+  .split(",")
+  .map((email) => email.trim().toLowerCase())
+  .filter(Boolean);
 
-async function loadUserRole(uid) {
+function resolveRole(email, fallback = "participant") {
+  const normalized = String(email || "").toLowerCase();
+  if (ADMIN_EMAILS.includes(normalized)) return "admin";
+  if (COACH_EMAILS.includes(normalized)) return "coach";
+  return fallback;
+}
+
+async function loadUserRole(uid, email) {
   if (!uid) return "guest";
-  const snap = await getDoc(doc(db, "userProfiles", uid));
-  return snap.exists() ? snap.data().role || "participant" : "participant";
+  const ref = doc(db, "userProfiles", uid);
+  const snap = await getDoc(ref);
+  if (snap.exists()) {
+    const currentRole = snap.data().role || "participant";
+    const resolved = resolveRole(email, currentRole);
+    if (resolved !== currentRole) {
+      await setDoc(ref, { role: resolved }, { merge: true });
+      return resolved;
+    }
+    return currentRole;
+  }
+  const role = resolveRole(email);
+  await setDoc(ref, {
+    email,
+    role,
+    createdAt: new Date().toISOString(),
+  });
+  return role;
 }
 
 export const useAuth = defineStore("auth", {
@@ -44,7 +75,7 @@ export const useAuth = defineStore("auth", {
           }
           this.isAuthed = true;
           this.user = { uid: firebaseUser.uid, email: firebaseUser.email, displayName: firebaseUser.displayName };
-          this.role = await loadUserRole(firebaseUser.uid);
+          this.role = await loadUserRole(firebaseUser.uid, firebaseUser.email);
           localStorage.setItem(ROLE_KEY, this.role);
           this.loading = false;
           this.ready = true;
@@ -61,10 +92,10 @@ export const useAuth = defineStore("auth", {
       }
       await setDoc(doc(db, "userProfiles", cred.user.uid), {
         email: cred.user.email,
-        role: role || "participant",
+        role: resolveRole(cred.user.email, role || "participant"),
         createdAt: new Date().toISOString(),
       });
-      this.role = role || "participant";
+      this.role = resolveRole(cred.user.email, role || "participant");
       this.user = { uid: cred.user.uid, email: cred.user.email, displayName: cred.user.displayName };
       this.isAuthed = true;
       localStorage.setItem(ROLE_KEY, this.role);
@@ -75,7 +106,7 @@ export const useAuth = defineStore("auth", {
       this.error = null;
       try {
         const cred = await signInWithEmailAndPassword(auth, email, password);
-        this.role = await loadUserRole(cred.user.uid);
+        this.role = await loadUserRole(cred.user.uid, cred.user.email);
         this.user = { uid: cred.user.uid, email: cred.user.email, displayName: cred.user.displayName };
         this.isAuthed = true;
         localStorage.setItem(ROLE_KEY, this.role);

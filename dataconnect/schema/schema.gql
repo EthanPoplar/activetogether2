@@ -1,0 +1,50 @@
+type User @table {
+  displayName: String!
+  email: String!
+  createdAt: Timestamp!
+  phoneNumber: String
+  photoUrl: String
+}
+
+type Event @table {
+  organizer: User
+  name: String!
+  sport: String!
+  startDate: Timestamp!
+  endDate: Timestamp!
+  location: String!
+  isPublic: Boolean!
+  createdAt: Timestamp!
+  description: String
+  registrationFee: Float
+  maxParticipants: Int
+}
+
+type Team @table {
+  event: Event
+  captain: User
+  name: String!
+  createdAt: Timestamp!
+  teamSizeLimit: Int
+}
+
+type Registration @table {
+  user: User
+  event: Event
+  team: Team
+  registrationDate: Timestamp!
+  status: String!
+  paymentAmount: Float
+  paymentStatus: String
+}
+
+type Result @table {
+  event: Event
+  participant: User
+  team: Team
+  resultType: String!
+  value: String!
+  createdAt: Timestamp!
+  notes: String
+  disqualificationReason: String
+}

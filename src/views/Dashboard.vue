@@ -1,6 +1,7 @@
 <script setup>
-import { computed, onMounted, ref } from "vue";
+import { computed, onMounted, onUnmounted, ref } from "vue";
 import { httpsCallable } from "firebase/functions";
+import { collection, doc, onSnapshot } from "firebase/firestore";
 import { ref as storageRef, uploadBytes, getDownloadURL } from "firebase/storage";
 import { useAuth } from "../stores/auth";
 import { usePrograms } from "../stores/programs";
@@ -8,7 +9,7 @@ import { useEnrollments } from "../stores/enrollments";
 import DataTable from "../components/DataTable.vue";
 import AttendanceChart from "../components/AttendanceChart.vue";
 import { exportToCsv, exportToPdf } from "../utils/export";
-import { functions, storage } from "../lib/firebase";
+import { db, functions, storage } from "../lib/firebase";
 
 const auth = useAuth();
 const programsStore = usePrograms();
@@ -22,6 +23,10 @@ const emailForm = ref({
 });
 const sendingEmail = ref(false);
 const emailStatus = ref("");
+const seeding = ref(false);
+const seedStatus = ref("");
+const appSummary = ref({ totalEnrollments: 0, uniqueParticipants: 0, totalPrograms: 0 });
+const programStats = ref([]);
 
 const enrollmentTableColumns = [
   { key: "participantName", label: "Participant", sortable: true, filterable: true },
@@ -39,18 +44,23 @@ const programTableColumns = [
 ];
 
 const programOptions = computed(() => programsStore.items.map(p => ({ id: p.id, name: p.name })));
+const isAdmin = computed(() => auth.role === "admin");
 
 const stats = computed(() => {
-  const enrollments = enrollmentsStore.records;
-  const uniqueParticipants = new Set(enrollments.map(e => e.email));
   return {
     totalPrograms: programsStore.items.length,
-    totalEnrollments: enrollments.length,
-    uniqueParticipants: uniqueParticipants.size,
+    totalEnrollments: appSummary.value.totalEnrollments || enrollmentsStore.records.length,
+    uniqueParticipants: appSummary.value.uniqueParticipants || 0,
   };
 });
 
 const chartData = computed(() => {
+  if (programStats.value.length) {
+    return programStats.value.map(stat => ({
+      label: stat.programName || stat.programId,
+      value: stat.enrollments || 0,
+    }));
+  }
   if (!programsStore.items.length) return [];
   return programsStore.items.map(program => ({
     label: program.name,
@@ -111,10 +121,41 @@ function exportPrograms() {
   exportToCsv("programs", rows);
 }
 
+async function seedPrograms() {
+  seedStatus.value = "";
+  seeding.value = true;
+  try {
+    const callable = httpsCallable(functions, "seedPrograms");
+    const res = await callable();
+    seedStatus.value = `Seeded ${res.data?.seeded ?? 0} programs`;
+  } catch (err) {
+    console.error(err);
+    seedStatus.value = err.message || "Failed to seed programs.";
+  } finally {
+    seeding.value = false;
+  }
+}
+
+let unsubscribeSummary;
+let unsubscribeProgramStats;
+
 onMounted(async () => {
   await auth.init();
   programsStore.init();
   enrollmentsStore.init();
+  unsubscribeSummary = onSnapshot(doc(db, "appStats", "summary"), (snap) => {
+    if (snap.exists()) {
+      appSummary.value = snap.data();
+    }
+  });
+  unsubscribeProgramStats = onSnapshot(collection(db, "programStats"), (snap) => {
+    programStats.value = snap.docs.map(docSnap => ({ id: docSnap.id, ...docSnap.data() }));
+  });
+});
+
+onUnmounted(() => {
+  unsubscribeSummary?.();
+  unsubscribeProgramStats?.();
 });
 </script>
 
@@ -124,6 +165,15 @@ onMounted(async () => {
       <h1 class="text-2xl font-bold">Coach Dashboard</h1>
       <p class="mt-1 text-slate-600">Monitor enrollments, communicate with participants, and export records.</p>
     </header>
+
+    <div v-if="isAdmin" class="flex flex-wrap items-center gap-3 rounded-xl border border-slate-200 bg-slate-50 p-4 text-sm">
+      <button class="btn-primary" type="button" :disabled="seeding" @click="seedPrograms">
+        <span v-if="!seeding">Seed sample data</span>
+        <span v-else>Seeding…</span>
+      </button>
+      <p class="text-slate-600">Populate Firestore with the default programs and reviews.</p>
+      <span v-if="seedStatus" :class="seedStatus.includes('Failed') ? 'text-red-600' : 'text-green-600'">{{ seedStatus }}</span>
+    </div>
 
     <div class="grid gap-4 sm:grid-cols-3" role="list">
       <div class="card p-4" role="listitem">
