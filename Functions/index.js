@@ -10,13 +10,26 @@ initializeApp();
 const db = getFirestore();
 
 const SENDGRID_KEY = process.env.SENDGRID_API_KEY;
-const ADMIN_EMAILS = (process.env.ADMIN_EMAILS || "")
+const ADMIN_EMAILS = (process.env.ROLES_ADMIN_EMAILS || process.env.ADMIN_EMAILS || "")
   .split(",")
   .map((email) => email.trim().toLowerCase())
   .filter(Boolean);
 
 if (SENDGRID_KEY) {
   sgMail.setApiKey(SENDGRID_KEY);
+}
+
+async function isAdmin(uid, email) {
+  const normalized = String(email || "").toLowerCase();
+  if (ADMIN_EMAILS.includes(normalized)) return true;
+  if (!uid) return false;
+  try {
+    const doc = await db.collection("userProfiles").doc(uid).get();
+    return doc.exists && doc.data().role === "admin";
+  } catch (err) {
+    console.error("Failed to read userProfiles for admin check", err);
+    return false;
+  }
 }
 
 const SAMPLE_PROGRAMS = [
@@ -64,7 +77,8 @@ export const seedPrograms = onCall(async (request) => {
     throw new HttpsError("unauthenticated", "Login required");
   }
   const email = String(auth.token.email).toLowerCase();
-  if (!ADMIN_EMAILS.includes(email)) {
+  const allowed = await isAdmin(auth.uid, email);
+  if (!allowed) {
     throw new HttpsError("permission-denied", "Only administrators can seed programs.");
   }
 
