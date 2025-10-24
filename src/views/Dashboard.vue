@@ -14,6 +14,8 @@ import { db, functions, storage } from "../lib/firebase";
 const auth = useAuth();
 const programsStore = usePrograms();
 const enrollmentsStore = useEnrollments();
+const sendProgramEmailCallable = httpsCallable(functions, "sendProgramEmail");
+const seedProgramsCallable = httpsCallable(functions, "seedPrograms");
 
 const emailForm = ref({
   programId: "",
@@ -79,8 +81,7 @@ async function handleEmailSubmit() {
       const snapshot = await uploadBytes(destination, emailForm.value.file);
       attachmentUrl = await getDownloadURL(snapshot.ref);
     }
-    const callable = httpsCallable(functions, "sendProgramEmail");
-    await callable({
+    await sendProgramEmailCallable({
       programId: emailForm.value.programId,
       subject: emailForm.value.subject,
       message: emailForm.value.message,
@@ -125,8 +126,7 @@ async function seedPrograms() {
   seedStatus.value = "";
   seeding.value = true;
   try {
-    const callable = httpsCallable(functions, "seedPrograms");
-    const res = await callable();
+    const res = await seedProgramsCallable();
     seedStatus.value = `Seeded ${res.data?.seeded ?? 0} programs`;
   } catch (err) {
     console.error(err);

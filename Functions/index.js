@@ -3,21 +3,36 @@ import { onDocumentCreated } from "firebase-functions/v2/firestore";
 import { setGlobalOptions } from "firebase-functions/v2/options";
 import { initializeApp } from "firebase-admin/app";
 import { getFirestore } from "firebase-admin/firestore";
-import sgMail from "@sendgrid/mail";
+import nodemailer from "nodemailer";
 
-setGlobalOptions({ region: "australia-southeast1" });
+setGlobalOptions({
+  region: "australia-southeast1",
+});
 initializeApp();
 const db = getFirestore();
 
-const SENDGRID_KEY = process.env.SENDGRID_API_KEY;
 const ADMIN_EMAILS = (process.env.ROLES_ADMIN_EMAILS || process.env.ADMIN_EMAILS || "")
   .split(",")
   .map((email) => email.trim().toLowerCase())
   .filter(Boolean);
 
-if (SENDGRID_KEY) {
-  sgMail.setApiKey(SENDGRID_KEY);
-}
+const SMTP_USER = process.env.SMTP_USER || "";
+const SMTP_PASS = process.env.SMTP_PASS || "";
+const SMTP_HOST = process.env.SMTP_HOST || "smtp.gmail.com";
+const SMTP_PORT = Number(process.env.SMTP_PORT || 465);
+const SMTP_SECURE = process.env.SMTP_SECURE
+  ? String(process.env.SMTP_SECURE).toLowerCase() === "true"
+  : SMTP_PORT === 465;
+const SMTP_FROM = process.env.SMTP_FROM || SMTP_USER;
+
+const transporter = SMTP_USER && SMTP_PASS
+  ? nodemailer.createTransport({
+      host: SMTP_HOST,
+      port: SMTP_PORT,
+      secure: SMTP_SECURE,
+      auth: { user: SMTP_USER, pass: SMTP_PASS },
+    })
+  : null;
 
 async function isAdmin(uid, email) {
   const normalized = String(email || "").toLowerCase();
@@ -136,9 +151,8 @@ export const sendProgramEmail = onCall(async (request) => {
   if (!auth?.token) {
     throw new HttpsError("unauthenticated", "Login required");
   }
-
-  if (!SENDGRID_KEY) {
-    throw new HttpsError("failed-precondition", "Missing SendGrid API key configuration");
+  if (!transporter || !SMTP_FROM) {
+    throw new HttpsError("failed-precondition", "SMTP credentials missing");
   }
 
   const { programId, subject, message, attachmentUrl } = data || {};
@@ -161,33 +175,30 @@ export const sendProgramEmail = onCall(async (request) => {
     return { success: false, reason: "no-valid-emails" };
   }
 
-  let attachment;
+  let attachments = [];
   if (attachmentUrl) {
     const response = await fetch(attachmentUrl);
     const buffer = await response.arrayBuffer();
-    const base64 = Buffer.from(buffer).toString("base64");
-    attachment = {
-      content: base64,
-      filename: attachmentUrl.split("/").pop() || "attachment",
-      type: response.headers.get("content-type") || "application/octet-stream",
-      disposition: "attachment",
-    };
+    attachments = [
+      {
+        filename: attachmentUrl.split("/").pop() || "attachment",
+        content: Buffer.from(buffer),
+        contentType: response.headers.get("content-type") || "application/octet-stream",
+      },
+    ];
   }
 
-  const emails = recipients.map((to) => {
-    const payload = {
+  const sendPromises = recipients.map((to) =>
+    transporter.sendMail({
       to,
-      from: process.env.SENDGRID_FROM || "noreply@activetogether.example",
+      from: SMTP_FROM,
       subject,
       html: `<div>${message}</div>${attachmentUrl ? `<p>Attachment: <a href="${attachmentUrl}">Download</a></p>` : ""}`,
-    };
-    if (attachment) {
-      payload.attachments = [attachment];
-    }
-    return payload;
-  });
+      attachments,
+    })
+  );
 
-  await sgMail.send(emails);
+  await Promise.all(sendPromises);
 
   await db.collection("emailLogs").add({
     sentBy: auth.uid,
