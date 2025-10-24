@@ -2,6 +2,8 @@
 import { onMounted, onUnmounted, ref, watch } from "vue";
 import mapboxgl from "mapbox-gl";
 
+defineOptions({ inheritAttrs: false });
+
 const props = defineProps({
   center: { type: Object, required: true }, // { lat, lng }
   markers: { type: Array, default: () => [] },
@@ -135,7 +137,14 @@ watch(() => props.center, () => {
 </script>
 
 <template>
-  <div ref="container" class="h-72 w-full rounded-xl border border-slate-200" role="presentation"></div>
+  <div
+    ref="container"
+    class="h-72 w-full rounded-xl border border-slate-200"
+    role="application"
+    tabindex="0"
+    aria-label="Interactive map showing program location"
+    v-bind="$attrs"
+  ></div>
 </template>
 
 <style scoped>

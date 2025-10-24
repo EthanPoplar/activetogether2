@@ -7,6 +7,7 @@ import nodemailer from "nodemailer";
 
 setGlobalOptions({
   region: "australia-southeast1",
+  cors: true,
 });
 initializeApp();
 const db = getFirestore();

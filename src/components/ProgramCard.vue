@@ -2,7 +2,11 @@
 import { computed } from "vue";
 import { useReviews } from "../stores/reviews";
 
-const props = defineProps({ program: Object });
+const props = defineProps({
+  program: { type: Object, required: true },
+  favorite: { type: Boolean, default: false },
+});
+const emit = defineEmits(["toggle-favorite"]);
 const reviewsStore = useReviews();
 
 const rating = computed(() => {
@@ -16,10 +20,21 @@ const rating = computed(() => {
 </script>
 
 <template>
-  <article class="card transition hover:shadow-md">
+  <article class="card transition hover:shadow-md" tabindex="0">
     <div class="h-32 w-full bg-gradient-to-tr from-blue-200 to-cyan-200" role="presentation"></div>
     <div class="space-y-2 p-4">
-      <h3 class="line-clamp-1 text-base font-semibold">{{ program.name }}</h3>
+      <div class="flex items-start justify-between gap-3">
+        <h3 class="line-clamp-1 text-base font-semibold">{{ program.name }}</h3>
+        <button
+          class="rounded-full border border-slate-200 bg-white p-2 text-xs text-slate-500 hover:bg-slate-100"
+          type="button"
+          :aria-pressed="favorite"
+          :aria-label="favorite ? 'Remove from saved programs' : 'Save program for later'"
+          @click.stop="emit('toggle-favorite', program.id)"
+        >
+          <span aria-hidden="true">{{ favorite ? '★' : '☆' }}</span>
+        </button>
+      </div>
       <p class="text-sm text-slate-600">
         {{ program.venue }} • {{ program.when }} • {{ program.cost ? '$'+program.cost : 'Free' }}
       </p>

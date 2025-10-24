@@ -8,12 +8,14 @@ import { useReviews } from "../stores/reviews";
 import { usePrograms } from "../stores/programs";
 import { useEnrollments } from "../stores/enrollments";
 import { programs as fallbackPrograms } from "../data/programs";
+import { useSessionNotes } from "../stores/sessionNotes";
 
 const id = useRoute().params.id;
 const auth = useAuth();
 const reviewsStore = useReviews();
 const programsStore = usePrograms();
 const enrollmentsStore = useEnrollments();
+const sessionNotesStore = useSessionNotes();
 
 const reviews = computed(() => reviewsStore.forProgram(id));
 const program = computed(() => programsStore.items.find(p => p.id === id) || fallbackPrograms.find(p => p.id === id));
@@ -140,15 +142,18 @@ onUnmounted(() => {
 
           <section class="space-y-3">
             <h2 class="text-lg font-semibold">Venue map & directions</h2>
-            <p class="text-sm text-slate-600">Get real-time directions with Mapbox. Hit “Locate me” to draw the best driving route from your current location.</p>
+            <p id="map-directions-description" class="text-sm text-slate-600">
+              Get real-time directions with Mapbox. Use the Tab key to move into the map controls, press Enter on “Locate me,” and Escape to return to the page.
+            </p>
             <VenueMap
               v-if="program.location"
               :center="program.location"
               :markers="[{ id: program.id, label: program.name, lat: program.location.lat, lng: program.location.lng, address: program.location.address }]"
               :route="route"
               :highlight-id="program.id"
+              aria-describedby="map-directions-description"
             />
-            <div class="flex items-center gap-3">
+            <div class="flex flex-wrap items-center gap-3">
               <button class="btn-primary" type="button" :disabled="locating" @click="locateMe">
                 <span v-if="!locating">Locate me</span>
                 <span v-else>Locating…</span>
@@ -171,55 +176,126 @@ onUnmounted(() => {
             <p v-else class="text-sm text-slate-600">No reviews yet. Be the first to leave one.</p>
 
             <div class="rounded-2xl border border-slate-200 bg-white p-4">
-              <h3 class="text-sm font-semibold">Add your review</h3>
-              <div class="mt-2 grid gap-3 sm:grid-cols-6">
-                <label class="sm:col-span-2 text-sm">Rating
-                  <select v-model.number="reviewForm.rating" class="input mt-1" aria-label="Rating out of 5">
-                    <option v-for="n in 5" :key="n" :value="n">{{ n }}</option>
-                  </select>
-                </label>
-                <label class="sm:col-span-4 text-sm">Comment
-                  <input v-model.trim="reviewForm.text" class="input mt-1" placeholder="What did you think?" />
-                </label>
-              </div>
-              <div class="mt-1">
-                <span v-if="reviewErrors.rating" class="mr-3 text-xs text-red-600">{{ reviewErrors.rating }}</span>
-                <span v-if="reviewErrors.text" class="text-xs text-red-600">{{ reviewErrors.text }}</span>
-              </div>
-              <div class="mt-3 flex items-center gap-3">
-                <button class="btn-primary" type="button" @click="addReview">Submit review</button>
-                <p v-if="!auth.isAuthed" class="text-xs text-slate-500">Posting as guest — <RouterLink to="/login" class="underline">login</RouterLink> for your name</p>
-              </div>
+              <form @submit.prevent="addReview" aria-labelledby="add-review-heading">
+                <h3 id="add-review-heading" class="text-sm font-semibold">Add your review</h3>
+                <div class="mt-2 grid gap-3 sm:grid-cols-6">
+                  <label class="sm:col-span-2 text-sm" for="review-rating">
+                    Rating
+                    <select
+                      id="review-rating"
+                      v-model.number="reviewForm.rating"
+                      class="input mt-1"
+                      aria-label="Rating out of 5"
+                      :aria-invalid="!!reviewErrors.rating"
+                      :aria-describedby="reviewErrors.rating ? 'review-rating-error' : undefined"
+                    >
+                      <option v-for="n in 5" :key="n" :value="n">{{ n }}</option>
+                    </select>
+                  </label>
+                  <label class="sm:col-span-4 text-sm" for="review-comment">
+                    Comment
+                    <input
+                      id="review-comment"
+                      v-model.trim="reviewForm.text"
+                      class="input mt-1"
+                      placeholder="What did you think?"
+                      inputmode="text"
+                      :aria-invalid="!!reviewErrors.text"
+                      :aria-describedby="reviewErrors.text ? 'review-comment-error' : undefined"
+                    />
+                  </label>
+                </div>
+                <div class="mt-1">
+                  <span v-if="reviewErrors.rating" id="review-rating-error" class="mr-3 text-xs text-red-600" role="alert">{{ reviewErrors.rating }}</span>
+                  <span v-if="reviewErrors.text" id="review-comment-error" class="text-xs text-red-600" role="alert">{{ reviewErrors.text }}</span>
+                </div>
+                <div class="mt-3 flex items-center gap-3">
+                  <button class="btn-primary" type="submit">Submit review</button>
+                  <p v-if="!auth.isAuthed" class="text-xs text-slate-500">Posting as guest — <RouterLink to="/login" class="underline">login</RouterLink> for your name</p>
+                </div>
+              </form>
             </div>
           </section>
         </div>
       </div>
 
-      <aside class="card p-5 space-y-4" aria-labelledby="quick-register">
-        <h2 id="quick-register" class="text-lg font-semibold">Quick Registration</h2>
-        <p class="text-sm text-slate-600">Secure your place in this session. Coaches receive instant notification.</p>
-        <label class="block text-sm">
-          Full name
-          <input v-model.trim="quickForm.name" class="input mt-1" placeholder="Your name" autocomplete="name" />
-          <span v-if="quickErrors.name" class="mt-1 block text-xs text-red-600">{{ quickErrors.name }}</span>
-        </label>
-        <label class="block text-sm">
-          Email
-          <input v-model.trim="quickForm.email" class="input mt-1" placeholder="you@example.com" autocomplete="email" />
-          <span v-if="quickErrors.email" class="mt-1 block text-xs text-red-600">{{ quickErrors.email }}</span>
-        </label>
-        <label class="block text-sm">
-          Notes (optional)
-          <input v-model.trim="quickForm.notes" class="input mt-1" placeholder="Accessibility, medical notes…" />
-          <span v-if="quickErrors.notes" class="mt-1 block text-xs text-red-600">{{ quickErrors.notes }}</span>
-        </label>
-        <label class="flex items-center gap-2 text-sm">
-          <input type="checkbox" v-model="quickForm.agree" />
-          I agree to privacy & child-safe policies
-        </label>
-        <span v-if="quickErrors.agree" class="block text-xs text-red-600">{{ quickErrors.agree }}</span>
-        <button class="btn-primary w-full" type="button" @click="quickRegister">Submit</button>
-        <p v-if="quickSuccess" class="text-sm text-green-600">{{ quickSuccess }}</p>
+      <aside class="space-y-4 lg:col-span-1" aria-label="Coach tools">
+        <div class="card p-5" aria-labelledby="session-notes-heading">
+          <h2 id="session-notes-heading" class="text-lg font-semibold">Prep notes</h2>
+          <p class="text-sm text-slate-600">Capture reminders and ideas for this session.</p>
+          <textarea
+            class="input mt-3 h-32 resize-y"
+            v-model="notes"
+            placeholder="Equipment, warm-up ideas, participant needs…"
+            aria-describedby="session-notes-status"
+          ></textarea>
+          <div class="mt-3 flex gap-2">
+            <button class="btn-primary" type="button" @click="saveNotes">Save notes</button>
+            <button class="btn-ghost" type="button" @click="clearNotes">Clear</button>
+          </div>
+          <p id="session-notes-status" class="mt-2 text-xs text-slate-500" role="status" aria-live="polite">{{ notesStatus }}</p>
+        </div>
+
+        <div class="card p-5" aria-labelledby="quick-register">
+          <h2 id="quick-register" class="text-lg font-semibold">Quick Registration</h2>
+          <p class="text-sm text-slate-600">Secure your place in this session. Coaches receive instant notification.</p>
+          <form class="mt-4 space-y-4" @submit.prevent="quickRegister">
+          <label class="block text-sm" for="quick-name">
+            Full name
+            <input
+              id="quick-name"
+              v-model.trim="quickForm.name"
+              class="input mt-1"
+              placeholder="Your name"
+              autocomplete="name"
+              :aria-invalid="!!quickErrors.name"
+              :aria-describedby="quickErrors.name ? 'quick-name-error' : undefined"
+            />
+            <span v-if="quickErrors.name" id="quick-name-error" class="mt-1 block text-xs text-red-600" role="alert">{{ quickErrors.name }}</span>
+          </label>
+
+          <label class="block text-sm" for="quick-email">
+            Email
+            <input
+              id="quick-email"
+              v-model.trim="quickForm.email"
+              class="input mt-1"
+              placeholder="you@example.com"
+              autocomplete="email"
+              :aria-invalid="!!quickErrors.email"
+              :aria-describedby="quickErrors.email ? 'quick-email-error' : undefined"
+            />
+            <span v-if="quickErrors.email" id="quick-email-error" class="mt-1 block text-xs text-red-600" role="alert">{{ quickErrors.email }}</span>
+          </label>
+
+          <label class="block text-sm" for="quick-notes">
+            Notes (optional)
+            <input
+              id="quick-notes"
+              v-model.trim="quickForm.notes"
+              class="input mt-1"
+              placeholder="Accessibility, medical notes…"
+              :aria-invalid="!!quickErrors.notes"
+              :aria-describedby="quickErrors.notes ? 'quick-notes-error' : undefined"
+            />
+            <span v-if="quickErrors.notes" id="quick-notes-error" class="mt-1 block text-xs text-red-600" role="alert">{{ quickErrors.notes }}</span>
+          </label>
+
+          <div class="flex items-center gap-2 text-sm">
+            <input
+              id="quick-agree"
+              type="checkbox"
+              v-model="quickForm.agree"
+              :aria-describedby="quickErrors.agree ? 'quick-agree-error' : undefined"
+            />
+            <label for="quick-agree">I agree to privacy & child-safe policies</label>
+          </div>
+          <span v-if="quickErrors.agree" id="quick-agree-error" class="block text-xs text-red-600" role="alert">{{ quickErrors.agree }}</span>
+
+          <button class="btn-primary w-full" type="submit">Submit</button>
+          <p v-if="quickSuccess" class="text-sm text-green-600" role="status" aria-live="polite">{{ quickSuccess }}</p>
+        </form>
+        </div>
       </aside>
     </div>
     <RouterLink to="/programs" class="mt-6 inline-block text-sm text-blue-700 underline">Back to programs</RouterLink>
@@ -233,3 +309,16 @@ onUnmounted(() => {
 
 
 
+const notes = ref(sessionNotesStore.load(id));
+const notesStatus = ref(notes.value ? "Notes loaded." : "");
+
+function saveNotes() {
+  sessionNotesStore.save(id, notes.value);
+  notesStatus.value = notes.value.trim() ? "Notes saved." : "Notes cleared.";
+}
+
+function clearNotes() {
+  notes.value = "";
+  sessionNotesStore.clear(id);
+  notesStatus.value = "Notes cleared.";
+}

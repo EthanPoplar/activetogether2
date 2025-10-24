@@ -3,8 +3,10 @@ import { computed, onMounted, ref, watch } from "vue";
 import ProgramCard from "../components/ProgramCard.vue";
 import VenueMap from "../components/VenueMap.vue";
 import { usePrograms } from "../stores/programs";
+import { useFavorites } from "../stores/favorites";
 
 const programsStore = usePrograms();
+const favoritesStore = useFavorites();
 const q = ref("");
 const onlyFree = ref(false);
 const accessible = ref(false);
@@ -53,6 +55,12 @@ const route = computed(() => {
   return { from: userLocation.value, to: selected.location };
 });
 
+const favoritePrograms = computed(() =>
+  favoritesStore.items
+    .map(id => programsStore.items.find(p => p.id === id))
+    .filter(Boolean)
+);
+
 function haversine(from, to) {
   if (!from?.lat || !from?.lng || !to?.lat || !to?.lng) return Infinity;
   const R = 6371;
@@ -75,6 +83,10 @@ function resetFilters() {
   q.value = "";
   onlyFree.value = false;
   accessible.value = false;
+}
+
+function toggleFavorite(id) {
+  favoritesStore.toggle(id);
 }
 
 function locateMe() {
@@ -111,37 +123,77 @@ watch(results, (list) => {
 
     <div class="grid gap-6 lg:grid-cols-12">
       <aside class="card p-4 lg:col-span-3 space-y-4" aria-label="Filters">
-        <div>
-          <h2 class="mb-3 text-sm font-semibold text-slate-900">Filters</h2>
-          <label class="block">
-            <span class="mb-1 block text-xs font-medium text-slate-500">Search</span>
-            <input v-model="q" class="input" placeholder="Sport, venue or suburb" type="search" />
-          </label>
-          <div class="mt-3 space-y-2 text-sm">
-            <label class="flex items-center gap-2"><input type="checkbox" v-model="onlyFree" /> Free only</label>
-            <label class="flex items-center gap-2"><input type="checkbox" v-model="accessible" /> Wheelchair accessible</label>
-          </div>
-          <div class="mt-4 flex gap-2">
-            <button class="btn-ghost" type="button" @click="resetFilters">Reset</button>
-          </div>
-        </div>
-        <div class="border-t border-slate-200 pt-4">
-          <h3 class="text-sm font-semibold text-slate-900">Find near me</h3>
-          <p class="mt-1 text-xs text-slate-500">We’ll use your current location to highlight close-by programs.</p>
-          <button class="btn-primary mt-3 w-full" type="button" :disabled="locating" @click="locateMe">
-            <span v-if="!locating">Locate me</span>
-            <span v-else>Locating…</span>
-          </button>
-          <ul v-if="nearbyPrograms.length" class="mt-3 space-y-2 text-sm" aria-live="polite">
-            <li v-for="{ program, distance } in nearbyPrograms" :key="program.id">
-              <button class="underline" type="button" @click="selectProgram(program.id)">
-                {{ program.name }}
-              </button>
-              <span class="text-xs text-slate-500"> · {{ distance }} km away</span>
-            </li>
-          </ul>
-          <p v-else-if="userLocation" class="mt-3 text-xs text-slate-500">No nearby programs within 10 km yet.</p>
-        </div>
+        <form class="space-y-4" @submit.prevent>
+          <fieldset class="space-y-3">
+            <legend class="mb-1 text-sm font-semibold text-slate-900">Filters</legend>
+            <label class="block" for="program-search">
+              <span class="mb-1 block text-xs font-medium text-slate-500">Search</span>
+              <input
+                id="program-search"
+                v-model="q"
+                class="input"
+                type="search"
+                placeholder="Sport, venue or suburb"
+                aria-describedby="program-search-help"
+              />
+            </label>
+            <p id="program-search-help" class="text-xs text-slate-500">Type to filter by program name or venue.</p>
+            <div class="space-y-2 text-sm">
+              <div class="flex items-center gap-2">
+                <input id="filter-free" type="checkbox" v-model="onlyFree" />
+                <label for="filter-free">Free only</label>
+              </div>
+              <div class="flex items-center gap-2">
+                <input id="filter-accessible" type="checkbox" v-model="accessible" />
+                <label for="filter-accessible">Wheelchair accessible</label>
+              </div>
+            </div>
+            <div class="flex gap-2">
+              <button class="btn-ghost" type="reset" @click.prevent="resetFilters">Reset</button>
+            </div>
+          </fieldset>
+
+          <fieldset class="border-t border-slate-200 pt-4 space-y-3">
+            <legend class="text-sm font-semibold text-slate-900">Find near me</legend>
+            <p class="text-xs text-slate-500" id="nearby-desc">We’ll use your current location to highlight close-by programs.</p>
+            <button
+              class="btn-primary mt-1 w-full"
+              type="button"
+              :disabled="locating"
+              aria-describedby="nearby-desc"
+              @click="locateMe"
+            >
+              <span v-if="!locating">Locate me</span>
+              <span v-else>Locating…</span>
+            </button>
+            <ul v-if="nearbyPrograms.length" class="space-y-2 text-sm" aria-live="polite">
+              <li v-for="{ program, distance } in nearbyPrograms" :key="program.id">
+                <button class="underline" type="button" @click="selectProgram(program.id)">
+                  {{ program.name }}
+                </button>
+                <span class="text-xs text-slate-500"> · {{ distance }} km away</span>
+              </li>
+            </ul>
+            <p v-else-if="userLocation" class="text-xs text-slate-500" role="status" aria-live="polite">
+              No nearby programs within 10 km yet.
+            </p>
+          </fieldset>
+
+          <section v-if="favoritePrograms.length" aria-label="Saved programs" class="rounded-xl bg-slate-50 p-3 text-sm">
+            <h3 class="font-semibold text-slate-900">Saved for later</h3>
+            <p class="mt-1 text-xs text-slate-500">Quick access to starred programs.</p>
+            <ul class="mt-2 space-y-1">
+              <li v-for="program in favoritePrograms" :key="program.id">
+                <button class="underline" type="button" @click="selectProgram(program.id)">
+                  {{ program.name }}
+                </button>
+              </li>
+            </ul>
+            <button class="btn-ghost mt-3 w-full" type="button" @click="favoritesStore.set([])">
+              Clear saved programs
+            </button>
+          </section>
+        </form>
       </aside>
 
       <section class="lg:col-span-9 space-y-6">
@@ -157,13 +209,17 @@ watch(results, (list) => {
           />
         </div>
 
+        <p class="text-sm text-slate-600" role="status" aria-live="polite">{{ results.length }} program{{ results.length === 1 ? '' : 's' }} found</p>
+
         <div v-if="results.length" class="grid gap-5 sm:grid-cols-2 xl:grid-cols-3" aria-live="polite">
           <ProgramCard
             v-for="p in results"
             :key="p.id"
             :program="p"
+            :favorite="favoritesStore.isFavorite(p.id)"
             @mouseenter="selectProgram(p.id)"
             @focusin="selectProgram(p.id)"
+            @toggle-favorite="toggleFavorite"
           />
         </div>
         <div v-else class="card p-8 text-center" role="status">

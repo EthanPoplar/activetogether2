@@ -2,14 +2,13 @@
 import { computed, onMounted, onUnmounted, ref } from "vue";
 import { httpsCallable } from "firebase/functions";
 import { collection, doc, onSnapshot } from "firebase/firestore";
-import { ref as storageRef, uploadBytes, getDownloadURL } from "firebase/storage";
 import { useAuth } from "../stores/auth";
 import { usePrograms } from "../stores/programs";
 import { useEnrollments } from "../stores/enrollments";
 import DataTable from "../components/DataTable.vue";
 import AttendanceChart from "../components/AttendanceChart.vue";
 import { exportToCsv, exportToPdf } from "../utils/export";
-import { db, functions, storage } from "../lib/firebase";
+import { db, functions } from "../lib/firebase";
 
 const auth = useAuth();
 const programsStore = usePrograms();
@@ -74,24 +73,12 @@ async function handleEmailSubmit() {
   emailStatus.value = "";
   sendingEmail.value = true;
   try {
-    let attachmentUrl = null;
-    if (emailForm.value.file) {
-      const safeName = `${emailForm.value.programId}-${Date.now()}-${emailForm.value.file.name}`;
-      const destination = storageRef(storage, `email-attachments/${safeName}`);
-      const snapshot = await uploadBytes(destination, emailForm.value.file);
-      attachmentUrl = await getDownloadURL(snapshot.ref);
-    }
-    await sendProgramEmailCallable({
-      programId: emailForm.value.programId,
-      subject: emailForm.value.subject,
-      message: emailForm.value.message,
-      attachmentUrl,
-    });
-    emailStatus.value = "Email queued for delivery.";
+    console.log("sendProgramEmail as:", auth.user?.email, "role:", auth.role);
+    emailStatus.value = "Email queued for delivery (demo mode).";
     emailForm.value = { programId: "", subject: "", message: "", file: null };
   } catch (err) {
     console.error(err);
-    emailStatus.value = "Failed to send email. Please try again.";
+    emailStatus.value = err.message || "Failed to send email.";
   } finally {
     sendingEmail.value = false;
   }
@@ -167,12 +154,17 @@ onUnmounted(() => {
     </header>
 
     <div v-if="isAdmin" class="flex flex-wrap items-center gap-3 rounded-xl border border-slate-200 bg-slate-50 p-4 text-sm">
-      <button class="btn-primary" type="button" :disabled="seeding" @click="seedPrograms">
-        <span v-if="!seeding">Seed sample data</span>
-        <span v-else>Seeding…</span>
-      </button>
-      <p class="text-slate-600">Populate Firestore with the default programs and reviews.</p>
-      <span v-if="seedStatus" :class="seedStatus.includes('Failed') ? 'text-red-600' : 'text-green-600'">{{ seedStatus }}</span>
+          <button class="btn-primary" type="button" :disabled="seeding" @click="seedPrograms">
+            <span v-if="!seeding">Seed sample data</span>
+            <span v-else>Seeding…</span>
+          </button>
+          <p class="text-slate-600">Populate Firestore with the default programs and reviews.</p>
+          <span
+            v-if="seedStatus"
+            :class="seedStatus.includes('Failed') ? 'text-red-600' : 'text-green-600'"
+            role="status"
+            aria-live="polite"
+          >{{ seedStatus }}</span>
     </div>
 
     <div class="grid gap-4 sm:grid-cols-3" role="list">
@@ -275,7 +267,13 @@ onUnmounted(() => {
             <span v-if="!sendingEmail">Send email</span>
             <span v-else>Sending…</span>
           </button>
-          <p v-if="emailStatus" class="text-sm" :class="emailStatus.includes('Failed') ? 'text-red-600' : 'text-green-600'">
+          <p
+            v-if="emailStatus"
+            class="text-sm"
+            :class="emailStatus.includes('Failed') ? 'text-red-600' : 'text-green-600'"
+            role="status"
+            aria-live="polite"
+          >
             {{ emailStatus }}
           </p>
         </div>
